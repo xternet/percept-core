@@ -1,0 +1,66 @@
+name: "CI"
+
+env:
+  ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+  ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+  FOUNDRY_PROFILE: "ci"
+  INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
+  MNEMONIC: ${{ secrets.MNEMONIC }}
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  ci:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Check out the repo"
+        uses: "actions/checkout@v3"
+        with:
+          submodules: "recursive"
+
+      - name: "Install Foundry and restore the RPC cache, if any"
+        uses: "foundry-rs/foundry-toolchain@v1"
+
+      - name: "Install Node.js"
+        uses: "actions/setup-node@v3"
+        with:
+          cache: "yarn"
+          node-version: "lts/*"
+
+      - name: "Install the Node.js dependencies"
+        run: "yarn install --immutable"
+
+      - name: "Lint the contracts"
+        run: "yarn lint"
+
+      - name: "Add lint summary"
+        run: |
+          echo "## Lint" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
+
+      - name: "Show the Foundry config"
+        run: "forge config"
+
+      - name: "Generate fuzz seed that changes weekly to avoid burning through RPC allowance"
+        run: >
+          echo "FOUNDRY_FUZZ_SEED=$(
+            echo $(($EPOCHSECONDS - $EPOCHSECONDS % 604800))
+          )" >> $GITHUB_ENV
+
+      - name: "Run the tests"
+        run: "forge test"
+
+      - name: "Check that the contracts are each under 24kB"
+        run: |
+          forge --version
+          forge build --sizes
+
+      - name: "Add test summary"
+        run: |
+          echo "## Tests" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
