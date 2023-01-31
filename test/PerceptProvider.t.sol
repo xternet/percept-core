@@ -1,24 +1,35 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
+import "../src/Verifier.sol";
+import "../src/PerceptToken.sol";
 import "../src/PerceptLibrary.sol";
 import "../src/PerceptProvider.sol";
+import "../src/MockSubscriber.sol";
 import {Utilities} from "./utils/Utilities.sol";
 
 contract PerceptProviderTest is Test {
 	using PerceptLibrary for PerceptLibrary.Model;
 	using PerceptLibrary for PerceptLibrary.ModelStatus;
 
+	Utilities utils;
+	Verifier verifier;
+	PerceptToken perceptToken;
+	MockSubscriber mockSubscriber;
 	PerceptProvider perceptProvider;
-	Utilities internal utils;
 
 	uint256 internal constant NUM_USERS = 4;
 	address[] internal users;
 	address internal deployer;
 	address internal modelProposer;
-	string[] public modelTypes;
-	uint modelProposalFee;
+	address internal subscriber;
+	address internal perceptNetwork;
 
+	string public modelType;
+	uint256 public modelTypeSubscriptonFee;
+
+	uint256 modelProposalFee;
+	uint256 modelSubcriptionFee;
 
 	string  validModelName;
 	string  validModelType;
@@ -30,6 +41,9 @@ contract PerceptProviderTest is Test {
 	address validModelVerifier;
 	PerceptLibrary.ModelStatus validModelStatus;
 
+	event ModelProposed(PerceptLibrary.Model);
+	event NewRequest(uint256 id, address subscriber, string modelType, uint callFee, bytes data);
+	event Transfer(address indexed from, address indexed to, uint256 amount);
 
 	function setUp() public {
 		utils = new Utilities();
@@ -37,32 +51,59 @@ contract PerceptProviderTest is Test {
 
 		deployer = users[0];
 		modelProposer = users[1];
-
-		modelTypes = new string[](3);
-		modelTypes[0] = "Liquidity Aggregation";
-		modelTypes[1] = "AMM Optimization";
-		modelTypes[2] = "DOV Strike Selection";
+		subscriber = users[2];
+		perceptNetwork = users[3];
 
 		modelProposalFee = 1 ether;
+		modelSubcriptionFee = 1 ether;
 
+		modelType = "DOV Strike Selection";
+
+		vm.startPrank(modelProposer);
+		verifier = new Verifier();
+		vm.stopPrank();
+
+		vm.startPrank(deployer);
+		perceptToken = new PerceptToken();
+		perceptProvider = new PerceptProvider(perceptToken, modelProposalFee, address(verifier)); //init fee 1 wei
+		perceptProvider.addModelType(modelType, modelSubcriptionFee);
+		perceptProvider.setPerceptNetwork(perceptNetwork);
+		vm.stopPrank();
+
+		vm.startPrank(subscriber);
+		mockSubscriber = new MockSubscriber(address(perceptProvider), address(perceptToken));
+		vm.stopPrank();
+
+		vm.startPrank(deployer);
+		perceptToken.transfer(modelProposer, 100 ether);
+		perceptToken.transfer(address(mockSubscriber), 100 ether);
+		vm.stopPrank();
 
 		validModelName = "Model0";
-		validModelType = modelTypes[0];
+		validModelType = modelType;
 		validModelData = 'IPFS LINK';
 		validModelPrice = 10 ether;
 		validModelPriceCall = 1 ether;
 		validModelProposer = modelProposer;
 		validModelFundReceiver = modelProposer;
-		validModelVerifier = address(1);
+		validModelVerifier = address(verifier);
 		validModelStatus = PerceptLibrary.ModelStatus.Proposed;
 
-
-		vm.startPrank(deployer);
-		perceptProvider = new PerceptProvider(modelProposalFee); //init fee 1 wei
-		perceptProvider.addModelTypes(modelTypes);
-		vm.stopPrank();
+	}
+	function testVerify() public {
+		assertEq(verifier.verify(true), true);
+		assertEq(verifier.verify(false), false);
 	}
 
+	function testPerceptNetwork() public {
+		assertEq(perceptProvider.perceptNetwork(), perceptNetwork);
+	}
+
+	function testMockSubscriber() public {
+		assertEq(mockSubscriber.perceptProvider(), address(perceptProvider));
+		assertEq(perceptToken.balanceOf(address(mockSubscriber)), 100 ether);
+		assertEq(perceptToken.allowance(address(mockSubscriber), address(perceptProvider)), type(uint256).max);
+	}
 	function testSetModelProposalFee() public {
 		vm.startPrank(deployer);
 		perceptProvider.setModelProposalFee(modelProposalFee*2);
@@ -70,40 +111,8 @@ contract PerceptProviderTest is Test {
 		vm.stopPrank();
 	}
 
-	function testSetModelProposalFeeTheSameFail() public {
-		vm.startPrank(deployer);
-		vm.expectRevert("Error: model proposal fee is already set to this value"); //onlyOwner
-		perceptProvider.setModelProposalFee(modelProposalFee);
-		vm.stopPrank();
-	}
-
-	function testSetModelProposalFeeUnauthorizedFail() public {
-		vm.startPrank(modelProposer);
-		vm.expectRevert("UNAUTHORIZED"); //onlyOwner
-		perceptProvider.setModelProposalFee(modelProposalFee*2);
-		vm.stopPrank();
-	}
-
-	function testAddModelTypes() public {
-		string[] memory modelTypesAdded = perceptProvider.getModelTypes();
-		assertEq(modelTypesAdded[0], modelTypes[0]);
-		assertEq(modelTypesAdded[1], modelTypes[1]);
-		assertEq(modelTypesAdded[2], modelTypes[2]);
-		assertEq(modelTypesAdded.length, modelTypes.length);
-	}
-
-	function testAddModelTypesAlreadyExistFail() public {
-		vm.startPrank(deployer);
-		vm.expectRevert("Error: model type already exists"); //onlyOwner
-		perceptProvider.addModelTypes(modelTypes);
-		vm.stopPrank();
-	}
-
-	function testAddModelTypesUnauthorizedFail() public {
-		vm.startPrank(modelProposer);
-		vm.expectRevert("UNAUTHORIZED"); //onlyOwner
-    perceptProvider.addModelTypes(modelTypes);
-		vm.stopPrank();
+	function testAddModelType() public {
+		assertEq(perceptProvider.modelTypeExists(modelType), true);
 	}
 
 	function testModelProposal() public {
@@ -121,9 +130,119 @@ contract PerceptProviderTest is Test {
 			validModelStatus
 		);
 
-		uint256 modelIndexBefore = perceptProvider.modelIndex();
+		uint256 modelIDBefore = perceptProvider.modelID();
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
-		assertEq(perceptProvider.modelIndex(), modelIndexBefore+1);
+		assertEq(perceptProvider.modelID(), modelIDBefore+1);
+		// assertEq(perceptToken.balanceOf(modelProposer), 100 ether - modelProposalFee);
+		vm.stopPrank();
+	}
+
+	function testApproveModel() public {
+		testModelProposal();
+
+		vm.startPrank(deployer);
+		perceptProvider.approveModel(0);
+		(,,,,,,,,PerceptLibrary.ModelStatus status) = perceptProvider.models(0);
+
+		assertEq(uint8(status), uint8(PerceptLibrary.ModelStatus.Approved));
+		vm.stopPrank();
+	}
+
+	function testRegisterModel() public {
+		testApproveModel();
+
+		vm.startPrank(modelProposer);
+		perceptProvider.registerModel(0);
+		(,,,,,,,,PerceptLibrary.ModelStatus status) = perceptProvider.models(0);
+
+		uint256[] memory modelIDs = perceptProvider.getModelIDsByType(validModelType);
+
+		assertEq(uint8(status), uint8(PerceptLibrary.ModelStatus.Active));
+		vm.stopPrank();
+	}
+
+	function testRegisterModels() public {
+		testRegisterModel();
+		testModelProposal();
+
+		//approve @todo create functions approve & register to reuse by providing params
+		vm.startPrank(deployer);
+		perceptProvider.approveModel(1);
+		(,,,,,,,,PerceptLibrary.ModelStatus statusApproved) = perceptProvider.models(1);
+		assertEq(uint8(statusApproved), uint8(PerceptLibrary.ModelStatus.Approved));
+		vm.stopPrank();
+
+		//register
+		vm.startPrank(modelProposer);
+		perceptProvider.registerModel(1);
+		(,,,,,,,,PerceptLibrary.ModelStatus statusActive) = perceptProvider.models(1);
+
+		uint256[] memory validModelTypeModelIDs = perceptProvider.getModelIDsByType(validModelType);
+
+		assertEq(validModelTypeModelIDs.length, 2);
+		assertEq(uint8(statusActive), uint8(PerceptLibrary.ModelStatus.Active));
+		vm.stopPrank();
+	}
+
+	function testSubscribeModelType() public {
+		testRegisterModel();
+
+		vm.startPrank(subscriber);
+		mockSubscriber.subscribeModelType(validModelType);
+		vm.stopPrank();
+
+		assertEq(perceptProvider.subscribers(address(mockSubscriber)), validModelType);
+	}
+
+	function testSendRequest() public {
+		testSubscribeModelType();
+
+		vm.startPrank(subscriber);
+
+		vm.expectEmit(true, true, true, true);
+		emit NewRequest(0, address(mockSubscriber), validModelType, validModelPriceCall, bytes("1"));
+		mockSubscriber.sendRequest(bytes("1"));
+
+		assertEq(perceptToken.balanceOf(address(mockSubscriber)), 100 ether - validModelPriceCall - modelSubcriptionFee);
+		vm.stopPrank();
+	}
+	function testReceiveResponse() public {
+		testSendRequest();
+
+		vm.startPrank(perceptNetwork);
+		uint balanceBefore = perceptToken.balanceOf(address(perceptProvider));
+		perceptProvider.receiveResponse(0, bytes("1"), true);
+		vm.stopPrank();
+
+		assertGe(balanceBefore, perceptToken.balanceOf(address(perceptProvider)));
+		//@todo check balances of multiple model creators (b4 create them)
+	}
+
+	function testAddModelTypeAlreadyExistFail() public {
+		vm.startPrank(deployer);
+		vm.expectRevert("Error: model type already exists"); //onlyOwner
+		perceptProvider.addModelType(modelType, modelTypeSubscriptonFee);
+		vm.stopPrank();
+	}
+
+	function testAddModelTypeUnauthorizedFail() public {
+		vm.startPrank(modelProposer);
+		vm.expectRevert("UNAUTHORIZED"); //onlyOwner
+    perceptProvider.addModelType(modelType, modelTypeSubscriptonFee);
+		vm.stopPrank();
+	}
+
+	function testSetModelProposalFeeTheSameFail() public {
+		vm.startPrank(deployer);
+		vm.expectRevert("Error: model proposal fee is already set to this value"); //onlyOwner
+		perceptProvider.setModelProposalFee(modelProposalFee);
+		vm.stopPrank();
+	}
+
+	function testSetModelProposalFeeUnauthorizedFail() public {
+		vm.startPrank(modelProposer);
+		vm.expectRevert("UNAUTHORIZED"); //onlyOwner
+		perceptProvider.setModelProposalFee(modelProposalFee*2);
 		vm.stopPrank();
 	}
 
@@ -153,57 +272,57 @@ contract PerceptProviderTest is Test {
 		);
 
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
-		assertEq(perceptProvider.modelIndex(), 1);
+		assertEq(perceptProvider.modelID(), 1);
 
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: invalidModelProposalFee}(model);
 
 		model.name = invalidModelName;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.name = validModelName;
 
 		model.modelType = invalidModelType;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.modelType = validModelType;
 
 		model.data = invalidModelData;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.data = validModelData;
 
 		model.price = invalidModelPrice;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.price = validModelPrice;
 
 		model.priceCall = invalidModelPriceCall;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.priceCall = validModelPriceCall;
 
 		model.proposer = invalidModelProposer;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.proposer = validModelProposer;
 
 		model.fundReceiver = invalidModelFundReceiver;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.fundReceiver = validModelFundReceiver;
 
 		model.verifier = invalidModelVerifier;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.verifier = validModelVerifier;
 
 		model.status = invalidModelStatus;
-		vm.expectRevert("Invalid Model parameters");
+		vm.expectRevert("Error: proposeModel");
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
 		model.status = validModelStatus;
 
 		perceptProvider.proposeModel{value: modelProposalFee}(model);
-		assertEq(perceptProvider.modelIndex(), 2);
+		assertEq(perceptProvider.modelID(), 2);
 	}
 }

@@ -4,8 +4,8 @@ library PerceptLibrary {
 	enum ModelStatus {
 		Proposed,
 		Approved,
-		Registered,
 		Active,
+		Rejected,
 		Disabled
 	}
 
@@ -22,3 +22,20 @@ library PerceptLibrary {
 		ModelStatus status;
 	}
 }
+
+/* 					modelTypesIDs = { //to view models id of each type
+	* 						type1:
+	* 							[
+	* 								modelID1,
+	* 								...
+	* 								modelID2
+	* 						],
+	* 					  ...
+	* 						typeN:
+	* 							[
+	* 								modelIDN-1,
+	* 								...
+	* 								modelIDN
+	* 						]
+	* 					}
+**/
