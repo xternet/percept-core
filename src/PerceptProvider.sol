@@ -270,28 +270,28 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   	PerceptLibrary.Request storage _request,
   	PerceptLibrary.Response calldata _response
   ) private view returns (bool) {
-  return (
-    msg.sender==perceptNetwork &&
-    _response.id==_request.id &&
-    _response.subscriber!=address(0) &&
-    _response.subscriber==_request.subscriber &&
-    (//same model
-    keccak256(abi.encodePacked(_response.model))
-    ==
-    keccak256(abi.encodePacked(_request.model))
-    ) &&
-    ( //same data request
-    keccak256(abi.encodePacked(_response.dataRequest))
-    ==
-    keccak256(abi.encodePacked(_request.dataRequest))
-    ) &&
-    ( //same verifier
-    _response.verifier
-    ==
-    model[keccak256(abi.encodePacked(_response.model))].verifier
-    ) &&
-    bytes4(_response.dataResponse) == bytes4(keccak256("perceptCallback(bytes)")) &&
-    bytes4(_response.proof) == bytes4(keccak256("verify(bool)")) //simple 4now
-  );
+  	return (
+			msg.sender==perceptNetwork &&
+			_response.id==_request.id &&
+			_response.subscriber!=address(0) &&
+			_response.subscriber==_request.subscriber &&
+			(//same model
+			keccak256(abi.encodePacked(_response.model))
+			==
+			keccak256(abi.encodePacked(_request.model))
+			) &&
+			( //same data request
+			keccak256(abi.encodePacked(_response.dataRequest))
+			==
+			keccak256(abi.encodePacked(_request.dataRequest))
+			) &&
+			( //same verifier
+			_response.verifier
+			==
+			model[keccak256(abi.encodePacked(_response.model))].verifier
+			) &&
+			bytes4(_response.dataResponse) == bytes4(keccak256("perceptCallback(bytes)")) &&
+			bytes4(_response.proof) == bytes4(keccak256("verify(bool)")) //simple 4now
+		);
   }
 }
