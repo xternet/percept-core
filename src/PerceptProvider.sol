@@ -252,18 +252,18 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   	PerceptLibrary.Request memory _request,
   	PerceptLibrary.Model memory __subscriberModel
   ) private view returns (bool) {
-  return(
-    _request.id==requestID &&
-    _request.subscriber==msg.sender &&
-    modelExists(_request.model) &&
-    _request.status==PerceptLibrary.RequestStatus.Pending &&
-    bytes4(_request.dataRequest)==bytes4(keccak256("perceptCallback(bytes)")) &&
-    ( //correct model
-    keccak256(abi.encodePacked(_request.model))
-    ==
-    keccak256(abi.encodePacked(__subscriberModel.name))
-    )
-  );
+		return(
+			_request.id==requestID &&
+			_request.subscriber==msg.sender &&
+			modelExists(_request.model) &&
+			_request.status==PerceptLibrary.RequestStatus.Pending &&
+			bytes4(_request.dataRequest)==bytes4(keccak256("perceptCallback(bytes)")) &&
+			( //correct model
+			keccak256(abi.encodePacked(_request.model))
+			==
+			keccak256(abi.encodePacked(__subscriberModel.name))
+			)
+		);
   }
 
   function _validateResponse(
