@@ -6,5 +6,5 @@
     "editor.defaultFormatter": "tamasfe.even-better-toml"
   },
   "solidity.formatter": "forge",
-  "workbench.colorTheme": "Solidity Visual Developer Dark"
+  "workbench.colorTheme": "GitHub Dark Dimmed"
 }
