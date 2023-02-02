@@ -5,9 +5,10 @@ import "forge-std/Test.sol";
 
 contract PerceptTokenTest is Test {
 	PerceptToken perceptToken;
+	uint totalSupply = 1000000 ether;
 
 	function setUp() public {
-		perceptToken = new PerceptToken();
+		perceptToken = new PerceptToken(totalSupply);
 	}
 
 	function testTokenName() public {
@@ -23,10 +24,10 @@ contract PerceptTokenTest is Test {
 	}
 
 	function testTokenTotalSupply() public {
-		assertEq(perceptToken.totalSupply(), 1000000 ether);
+		assertEq(perceptToken.totalSupply(), totalSupply);
 	}
 
 	function testTokenBalanceOf() public {
-		assertEq(perceptToken.balanceOf(address(this)), 1000000 ether);
+		assertEq(perceptToken.balanceOf(address(this)), totalSupply);
 	}
 }
