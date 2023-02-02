@@ -1,30 +1,14 @@
 pragma solidity 0.8.17;
 
 library PerceptLibrary {
-	enum ModelStatus {
-		Proposed,
-		Approved,
-		Active
-	}
-
 	struct Model {
-		uint256 id;
-		address owner; //aka fund receiver
-		string data; //possible bytecode of verifier or ipfs link
-		string modelType;
-		uint256 backTestPoints;
-		uint256 lastRequestID;
-		ModelStatus status;
-	}
-
-	struct ModelType {
 		string name;
+		string data;
+		address verifier;
 		uint256 feeCall;
 		uint256 feeSubscription;
-		uint256 totalBacktestPoints;
-		uint256 totalSuccessfulRequests; //successful
+		uint256 amtVerifiedCalls;
 		bytes verifierBytecode;
-		uint256[] modelIDs;
 	}
 
 	enum RequestStatus {
@@ -36,7 +20,7 @@ library PerceptLibrary {
 	struct Request {
 		uint256 id;
 		address subscriber;
-		string modelType;
+		string model;
 		bytes dataRequest;
 		RequestStatus status;
 	}
@@ -44,34 +28,10 @@ library PerceptLibrary {
 	struct Response {
 		uint256 id;
 		address subscriber;
-		string modelType;
+		string model;
 		bytes dataRequest;
 		bytes dataResponse;
+		address verifier;
 		bytes proof;
 	}
-
-	// struct Request { //dont see the reason to store it, yet
-	// 	uint256 id;
-	// 	address subscriber;
-	// 	string modelType;
-	// 	bytes data;
-	// 	uint256 timestamp;
-	// }
 }
-
-/* 					modelTypesIDs = { //to view models id of each type
-	* 						type1:
-	* 							[
-	* 								modelID1,
-	* 								...
-	* 								modelID2
-	* 						],
-	* 					  ...
-	* 						typeN:
-	* 							[
-	* 								modelIDN-1,
-	* 								...
-	* 								modelIDN
-	* 						]
-	* 					}
-**/
