@@ -6,11 +6,10 @@ pragma solidity 0.8.17;
  * 		[x] Setup
  * 				[x] constructor
  * 						[x] deployPctTkn
- * 						[x] deployVerifyAggregator
  * 						[x] setPerceptNetwork()
  * 		[x] Registration:
   * 			[x] setModel
-  * 					[x] deployVerifier @todo after ZKP ML verification contract
+  * 					[x] deployVerifier (if not provided) @todo after ZKP ML verification contract
  * 				[x] subscribeModel 4now 1 subscriber=1 model
  * 		[x] Execution:
  * 				[x] sendRequest()
@@ -27,15 +26,15 @@ pragma solidity 0.8.17;
  *        [ ] events, (indexed?, argument seperately instead of struct?)
  * 				[ ] Compare gas between error msg for each "require" and just "return logic x && y"
  */
+
+import "forge-std/Test.sol";
 import {Owned} from "solmate/auth/Owned.sol";
 import {PerceptLibrary} from "./PerceptLibrary.sol";
 import {PerceptToken} from "./PerceptToken.sol";
-import {ZKPVerifierAggregator} from "./ZKPVerifierAggregator.sol";
 import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
 
 contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   PerceptToken pctTkn;
-  ZKPVerifierAggregator zkpVerifierAggregator;
 
   using PerceptLibrary for PerceptLibrary.Model;
   using PerceptLibrary for PerceptLibrary.Request;
@@ -51,7 +50,7 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 
   event PctTknDeployed(address pctTkn, uint256 totalSupply);
   event PerceptNetworkUpdated(address oldPerceptNetwork, address newPerceptNetwork);
-  event ZKPVerifierAggregatorDeployed(address zkpVerifierAggregatorAddress);
+	event VerifierDeployed(string model, address verifierAddress);
 
   event ModelAdded(PerceptLibrary.Model model);
   event SubscriberRegistered(address subscriber, PerceptLibrary.Model model);
@@ -60,7 +59,6 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 
   constructor(uint256 _totalSupply, address _perceptNetwork){
 		_setPctTkn(_totalSupply);
-		_setZKPVerifierAggregator();
 		setPerceptNetwork(_perceptNetwork);
   }
 
@@ -73,9 +71,12 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   	return address(pctTkn);
   }
 
-  function getZKPVerifierAggregatorAddr() external view returns (address) {
-  	return address(zkpVerifierAggregator);
-  }
+	function getRequestID() external view returns (uint256) {
+		return requestID;
+	}
+	function getPerceptNetwork() external view returns (address) {
+		return perceptNetwork;
+	}
 
   function getModel(string memory _model) external view returns (PerceptLibrary.Model memory) {
   	return model[keccak256(abi.encodePacked(_model))];
@@ -111,11 +112,6 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 		emit PctTknDeployed(address(pctTkn), _totalSupply);
   }
 
-  function _setZKPVerifierAggregator() internal {
-		zkpVerifierAggregator = new ZKPVerifierAggregator();
-		emit ZKPVerifierAggregatorDeployed(address(zkpVerifierAggregator));
-  }
-
   function setPerceptNetwork(address _newPerceptNetwork) public onlyOwner {
 		address __oldPerceptNetwork = perceptNetwork;
 		require(
@@ -128,12 +124,22 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 
   function setModel(PerceptLibrary.Model memory _model) external onlyOwner {
 		require(_validateSetModel(_model), "PerceptError: setModel");
-		_setVerifier(_model);
+		if(_model.verifier == address(0)) _model.verifier = _deployVerifier(_model);
 		_setModel(_model);
   }
 
-  function _setVerifier(PerceptLibrary.Model memory _model) private {
-  	_model.verifier = zkpVerifierAggregator.deployVerifier(_model.verifierBytecode);
+	function _deployVerifier(PerceptLibrary.Model memory _model) private returns (address __verifier) {
+    bytes memory _bytecode = _model.verifierBytecode;
+
+		assembly {
+      __verifier := create(0, add(_bytecode, 0x20), mload(_bytecode))
+      if iszero(extcodesize(__verifier)) {
+				revert(0, 0)
+      }
+    }
+
+    emit VerifierDeployed(_model.name, __verifier);
+    return __verifier;
   }
 
   function _setModel(PerceptLibrary.Model memory _model) private {
@@ -178,14 +184,18 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 		PerceptLibrary.Request storage __request = request[keccak256(abi.encodePacked(_response.id))];
 		require(_validateResponse(__request, _response), "PerceptError: response");
 
-		__verified = zkpVerifierAggregator.verify(_response);
-		__verified ? _setExecSuccess(__request, _response) : _setExecFailure(__request, _response); //@todo check if failure will not revert response
+		__verified = _verify(_response);
+		__verified ? _setExecSuccess(__request, _response) : _setExecFailure(__request, _response);
 
 		emit ResponseReceived(
 			__verified,
 			__request,
 			_response
 		);
+  }
+
+  function _verify(PerceptLibrary.Response memory _response) private returns (bool __verified) {
+    (__verified, ) = _response.verifier.call(_response.proof); //revert=false; !revert=true
   }
 
   function _setExecSuccess(
@@ -201,20 +211,20 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   	PerceptLibrary.Request storage __request,
   	PerceptLibrary.Response calldata _response
   ) private {
-  	__request.status = PerceptLibrary.RequestStatus.Failure;
+		__request.status = PerceptLibrary.RequestStatus.Failure;
   	pctTkn.transfer(_response.subscriber, getFeeCall(_response.model));
   	_response.subscriber.call(abi.encodeWithSignature("perceptCallback(bytes)", bytes(''))); //skip success check to protect from DoS attack
   }
 
   function withdraw() external view onlyOwner returns(bool) { //ensure risks with reentrancy & modelAdd/update
-  {
-    /**
-     * calc. reward distribution, e.g. based on:
-     * 	1. Model's "amtVerifiedCalls"
-     *  2. Models' "data" (based on ML Marketplace data)
-     */
-  }
-  return true; //mute
+		{
+			/**
+			 * calc. reward distribution, e.g. based on:
+			 * 	1. Model's "amtVerifiedCalls"
+			 *  2. Models' "data" (based on ML Marketplace data)
+			 */
+		}
+		return true; //mute
   }
 
   //validation
@@ -233,11 +243,14 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 			bytes(_model.name).length>0 &&
 			!modelExists(_model.name) &&
 			bytes(_model.data).length>0 &&
-			_model.verifier==address(0) &&
 			_model.feeCall > 0 &&
 			_model.feeSubscription > 0 &&
 			_model.amtVerifiedCalls ==0 &&
-			_model.verifierBytecode.length > 0
+			( //>=1 must contain data
+				_model.verifier!=address(0)
+				||
+				_model.verifierBytecode.length!=0
+			)
 		);
   }
 
@@ -257,11 +270,15 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 			_request.subscriber==msg.sender &&
 			modelExists(_request.model) &&
 			_request.status==PerceptLibrary.RequestStatus.Pending &&
-			bytes4(_request.dataRequest)==bytes4(keccak256("perceptCallback(bytes)")) &&
+			( //correct callback
+				bytes4(_request.dataRequest)
+				==
+				bytes4(keccak256("perceptCallback(bytes)"))
+			) &&
 			( //correct model
-			keccak256(abi.encodePacked(_request.model))
-			==
-			keccak256(abi.encodePacked(__subscriberModel.name))
+				keccak256(abi.encodePacked(_request.model))
+				==
+				keccak256(abi.encodePacked(__subscriberModel.name))
 			)
 		);
   }
@@ -276,22 +293,30 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 			_response.subscriber!=address(0) &&
 			_response.subscriber==_request.subscriber &&
 			(//same model
-			keccak256(abi.encodePacked(_response.model))
-			==
-			keccak256(abi.encodePacked(_request.model))
+				keccak256(abi.encodePacked(_response.model))
+				==
+				keccak256(abi.encodePacked(_request.model))
 			) &&
 			( //same data request
-			keccak256(abi.encodePacked(_response.dataRequest))
-			==
-			keccak256(abi.encodePacked(_request.dataRequest))
+				keccak256(abi.encodePacked(_response.dataRequest))
+				==
+				keccak256(abi.encodePacked(_request.dataRequest))
 			) &&
 			( //same verifier
-			_response.verifier
-			==
-			model[keccak256(abi.encodePacked(_response.model))].verifier
+				_response.verifier
+				==
+				model[keccak256(abi.encodePacked(_response.model))].verifier
 			) &&
-			bytes4(_response.dataResponse) == bytes4(keccak256("perceptCallback(bytes)")) &&
-			bytes4(_response.proof) == bytes4(keccak256("verify(bool)")) //simple 4now
+			( //correct callback signature
+				bytes4(_response.dataResponse)
+				==
+				bytes4(keccak256("perceptCallback(bytes)"))
+			) &&
+			( //correct verifier signature
+				bytes4(_response.proof)
+				==
+				bytes4(keccak256("verify(bool)")) //simple 4now
+			)
 		);
   }
 }
