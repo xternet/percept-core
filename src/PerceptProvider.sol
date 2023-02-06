@@ -9,14 +9,15 @@ pragma solidity 0.8.17;
  * 						[x] setPerceptNetwork()
  * 		[x] Registration:
   * 			[x] setModel
-  * 					[x] deployVerifier (if not provided) @todo after ZKP ML verification contract
+	* 					[x] Deploy verifier contract from circom
+  * 					[ ] @todo EZKL verification contract
  * 				[x] subscribeModel 4now 1 subscriber=1 model
  * 		[x] Execution:
  * 				[x] sendRequest()
  * 				[x] response()
  * 					 [x] verifyResult()
  * 					 [x] sendResult()
- * 				[ ] withdraw() @todo after ML marketplace development
+ *				[ ] withdraw() @todo ML marketplace
  *
  * 		[ ] Security&Optimization&Others:
  * 				[ ] Scan through vulns. list.
@@ -195,7 +196,8 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   }
 
   function _verify(PerceptLibrary.Response memory _response) private returns (bool __verified) {
-    (__verified, ) = _response.verifier.call(_response.proof); //revert=false; !revert=true
+    (bool _success, bytes memory _data) = _response.verifier.call(_response.proof); //revert=false; !revert=true
+		__verified = _success && abi.decode(_data, (bool));
   }
 
   function _setExecSuccess(
@@ -315,7 +317,7 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
 			( //correct verifier signature
 				bytes4(_response.proof)
 				==
-				bytes4(keccak256("verify(bool)")) //simple 4now
+				bytes4(keccak256("verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[1])"))
 			)
 		);
   }

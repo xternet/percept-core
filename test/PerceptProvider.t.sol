@@ -5,6 +5,8 @@ import "../src/ZKPVerifier.sol";
 import "../src/PerceptToken.sol";
 import "../src/PerceptLibrary.sol";
 import "../src/PerceptProvider.sol";
+import "../src/ZKPVerifierMultiplier.sol";
+// import "../src/interfaces/IZKPVerifierMultiplier.sol";
 import "../src/interfaces/IPerceptProvider.sol";
 import "../src/MockSubscriber.sol";
 import {Utilities} from "./utils/Utilities.sol";
@@ -13,9 +15,12 @@ contract PerceptProviderTest is Test {
   using PerceptLibrary for PerceptLibrary.Model;
   using PerceptLibrary for PerceptLibrary.RequestStatus;
   using PerceptLibrary for PerceptLibrary.Response;
+  using PerceptLibrary for PerceptLibrary.Proof;
 
   Utilities utils;
   ZKPVerifier zkpVerifier;
+  // IZKPVerifierMultiplier zkpVerifierMultiplier;
+  ZKPVerifierMultiplier zkpVerifierMultiplier;
   PerceptToken perceptToken;
   MockSubscriber mockSubscriber;
   PerceptProvider perceptProvider;
@@ -42,11 +47,37 @@ contract PerceptProviderTest is Test {
   uint256 feeSubcription0;
   uint256 initMockSubscriberBalance;
 
-  bytes constant verifierBytecode = hex'608060405234801561001057600080fd5b50600080546001600160a01b031916339081178255604051909182917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908290a350610235806100616000396000f3fe608060405234801561001057600080fd5b50600436106100415760003560e01c806333364197146100465780638da5cb5b1461006e578063f2fde38b146100b3575b600080fd5b6100596100543660046101c9565b6100c8565b60405190151581526020015b60405180910390f35b60005461008e9073ffffffffffffffffffffffffffffffffffffffff1681565b60405173ffffffffffffffffffffffffffffffffffffffff9091168152602001610065565b6100c66100c13660046101f2565b6100d4565b005b60008115610041575090565b60005473ffffffffffffffffffffffffffffffffffffffff163314610159576040517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152600c60248201527f554e415554484f52495a45440000000000000000000000000000000000000000604482015260640160405180910390fd5b600080547fffffffffffffffffffffffff00000000000000000000000000000000000000001673ffffffffffffffffffffffffffffffffffffffff83169081178255604051909133917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e09190a350565b6000602082840312156101db57600080fd5b813580151581146101eb57600080fd5b9392505050565b60006020828403121561020457600080fd5b813573ffffffffffffffffffffffffffffffffffffffff811681146101eb57600080fdfea164736f6c6343000811000a';
+  /**
+   * ZKP proof for the following statement:
+   * a * b = c
+   * where a=3, b=11, and c as a result c=33
+   */
+  uint256[2] public a = [
+    0x2df5d8728684e37dbfe1018fabd82b3a3c79bee0b29e4d178338819378117777,
+    0x29625c6f4504e2c8c50760257deaeb08663fce5a019232d28ce2915a5396f85e
+  ];
 
-  //the one with selfdestruct in constructor
-  bytes constant verifierBytecodeInvalid = hex'608060405234801561001057600080fd5b50600080546001600160a01b031916339081178255604051909182917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908290a35033fffe';
+  uint256[2][2] public b = [
+    [
+      0x1b0d15e956f98fbf896f4929f7265ff5c34b3a5589eb9585a8a1242ef56f0d7c,
+      0x12bd6375b4484aaf8541fea7380763247870adbc6796297ea63c7c16ebc9a19c
+    ],
+    [
+      0x2512859064178aa30f1043a87ed8b0f6671e76d6c24447823f180d479ff71b7f,
+      0x197b7d2b948a562b046fe2a5be30be9f045b0783d401df5677ea6916b02fc6f0
+    ]
+  ];
+  uint256[2] public c = [
+    0x1c69a6d7c0103a1852af0c40b24acddff61cdd5198e2fec996d30cc399baf1fe,
+    0x14c837a6d6aa0d20ee08f7917a427796db0c2566017d51dc93f7228d8023d2e1
+  ];
+  uint256[1] public input = [
+    0x0000000000000000000000000000000000000000000000000000000000000021
+  ];
 
+  uint256[1] public input_false = [
+    0x0000000000000000000000000000000000000000000000000000000000000020
+  ];
 
   bytes constant requestBytes = abi.encodeWithSignature("perceptCallback(bytes)", "0x");
   bytes constant responseProofTrue = abi.encodeWithSignature("verify(bool)", true);
@@ -55,6 +86,15 @@ contract PerceptProviderTest is Test {
 
   event NewRequest(uint256 id, address subscriber, string modelType, uint callFee, bytes data);
   event Transfer(address indexed from, address indexed to, uint256 amount);
+
+  function _getTrueProof() public view returns (bytes memory) {
+    return abi.encodeWithSignature("verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[1])", a, b, c, input);
+  }
+
+  function _getFalseProof() public view returns (bytes memory) {
+    return abi.encodeWithSignature("verifyProof(uint256[2],uint256[2][2],uint256[2],uint256[1])", a, b, c, input_false);
+  }
+
 
   function setUp() public {
     utils = new Utilities();
@@ -72,6 +112,13 @@ contract PerceptProviderTest is Test {
     model0_name = "DOV";
     model0_data = "0x";
 
+    vm.startPrank(deployer, deployer); //msg.sender & tx.origin
+    perceptProvider = new PerceptProvider(pctTknTotalSupply, perceptNetwork);
+    perceptToken = PerceptToken(perceptProvider.getPctTknAddr());
+    zkpVerifierMultiplier = new ZKPVerifierMultiplier();
+
+    model0_verifier = address(zkpVerifierMultiplier);
+
     model0 = PerceptLibrary.Model({
       name: model0_name,
       data: model0_data,
@@ -79,15 +126,11 @@ contract PerceptProviderTest is Test {
       feeCall: feeCall0,
       feeSubscription: feeSubcription0,
       amtVerifiedCalls: 0,
-      verifierBytecode: verifierBytecode
+      verifierBytecode: ''
     });
 
-    vm.startPrank(deployer, deployer); //msg.sender & tx.origin
-    perceptProvider = new PerceptProvider(pctTknTotalSupply, perceptNetwork);
-
-    perceptToken = PerceptToken(perceptProvider.getPctTknAddr());
-
     perceptProvider.setModel(model0); // & deploy verifier
+    // zkpVerifierMultiplier = IZKPVerifierMultiplier(perceptProvider.getModel(model0_name).verifier);
     vm.stopPrank();
 
     vm.startPrank(subscriber);
@@ -125,10 +168,9 @@ contract PerceptProviderTest is Test {
     assertEq(perceptProvider.getModel(model0_name).feeCall, feeCall0);
     assertEq(perceptProvider.getModel(model0_name).feeSubscription, feeSubcription0);
     assertEq(perceptProvider.getModel(model0_name).amtVerifiedCalls, 0);
-    assertEq(perceptProvider.getModel(model0_name).verifierBytecode, verifierBytecode);
+    // assertEq(perceptProvider.getModel(model0_name).verifierBytecode, verifierBytecodeMultiplier);
     assertEq(perceptProvider.getFeeSubscription(model0_name), feeSubcription0);
     assertEq(perceptProvider.getFeeCall(model0_name), feeCall0);
-
 
     zkpVerifier = ZKPVerifier(perceptProvider.getModel(model0_name).verifier);
     assert(address(zkpVerifier)!=address(0));
@@ -145,7 +187,6 @@ contract PerceptProviderTest is Test {
     assertEq(perceptProvider.getModel(model0_name).amtVerifiedCalls, 0);
     vm.stopPrank();
   }
-
 
   function testTrue_sendRequest() public {
     testTrue_setSubscribeModel();
@@ -176,7 +217,7 @@ contract PerceptProviderTest is Test {
       dataRequest: _request.dataRequest,
       dataResponse: responseBytes, //perceptCallback(bytes(bool))
       verifier: perceptProvider.getModel(model0_name).verifier,
-      proof: responseProofTrue
+      proof: _getTrueProof()
     });
 
     bool _verified = perceptProvider.response(response0);
@@ -189,7 +230,7 @@ contract PerceptProviderTest is Test {
     vm.stopPrank();
   }
 
-  function test_responseNotVerified() public {
+  function testFail_responseVerified() public {
     testTrue_sendRequest();
     vm.startPrank(perceptNetwork);
 
@@ -201,16 +242,16 @@ contract PerceptProviderTest is Test {
       dataRequest: _request.dataRequest,
       dataResponse: responseBytes, //perceptCallback(bytes(bool))
       verifier: perceptProvider.getModel(model0_name).verifier,
-      proof: responseProofFalse //<---------- verify(bool) FALSE
+      proof: _getFalseProof()
     });
 
     bool _verified = perceptProvider.response(response0);
 
-    assert(_verified == false);
-    assert(perceptProvider.getModel(model0_name).amtVerifiedCalls == 0);
-    assert(perceptProvider.getRequest(0).status == PerceptLibrary.RequestStatus.Failure);
-    assert(perceptToken.balanceOf(address(perceptProvider)) == feeSubcription0);
-    assert(perceptToken.balanceOf(address(mockSubscriber)) == initMockSubscriberBalance - feeSubcription0);
+    assert(_verified);
+    assert(perceptProvider.getModel(model0_name).amtVerifiedCalls == 1);
+    assert(perceptProvider.getRequest(0).status == PerceptLibrary.RequestStatus.Success);
+    assert(perceptToken.balanceOf(address(perceptProvider)) == feeSubcription0 + feeCall0);
+    assert(perceptToken.balanceOf(address(mockSubscriber)) == initMockSubscriberBalance - feeSubcription0 - feeCall0);
     vm.stopPrank();
   }
 
@@ -218,7 +259,7 @@ contract PerceptProviderTest is Test {
     model_invalid = PerceptLibrary.Model({
       name: model0_name,
       data: model0_data,
-      verifier: model0_verifier,
+      verifier: address(0),
       feeCall: feeCall0,
       feeSubscription: feeSubcription0,
       amtVerifiedCalls: 0,
@@ -239,7 +280,7 @@ contract PerceptProviderTest is Test {
       feeCall: feeCall0,
       feeSubscription: feeSubcription0,
       amtVerifiedCalls: 0,
-      verifierBytecode: '0x'
+      verifierBytecode: ''
     });
 
     vm.startPrank(deployer, deployer);

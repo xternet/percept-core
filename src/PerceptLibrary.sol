@@ -25,6 +25,13 @@ library PerceptLibrary {
     RequestStatus status;
   }
 
+  struct Proof {
+    uint256[2] a;
+    uint256[2][2] b;
+    uint256[2] c;
+    uint256[1] input;
+  }
+
   struct Response {
     uint256 id;
     address subscriber;

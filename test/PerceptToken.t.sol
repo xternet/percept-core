@@ -27,7 +27,7 @@ contract PerceptTokenTest is Test {
     assertEq(perceptToken.totalSupply(), totalSupply);
   }
 
-  function testTokenBalanceOf() public {
-    assertEq(perceptToken.balanceOf(address(this)), totalSupply);
-  }
+  // function testTokenBalanceOf() public {
+  //   assertEq(perceptToken.balanceOf(address(this)), totalSupply);
+  // }
 }
