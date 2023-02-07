@@ -1,12 +1,10 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
-import "../src/ZKPVerifier.sol";
 import "../src/PerceptToken.sol";
 import "../src/PerceptLibrary.sol";
 import "../src/PerceptProvider.sol";
-import "../src/ZKPVerifierMultiplier.sol";
-// import "../src/interfaces/IZKPVerifierMultiplier.sol";
+import "../src/Verifier.sol";
 import "../src/interfaces/IPerceptProvider.sol";
 import "../src/MockSubscriber.sol";
 import {Utilities} from "./utils/Utilities.sol";
@@ -18,12 +16,10 @@ contract PerceptProviderTest is Test {
   using PerceptLibrary for PerceptLibrary.Proof;
 
   Utilities utils;
-  ZKPVerifier zkpVerifier;
-  // IZKPVerifierMultiplier zkpVerifierMultiplier;
-  ZKPVerifierMultiplier zkpVerifierMultiplier;
   PerceptToken perceptToken;
   MockSubscriber mockSubscriber;
   PerceptProvider perceptProvider;
+  Verifier verifier;
 
   PerceptLibrary.Model model0;
   PerceptLibrary.Model model_invalid; //the one with invalid verifier (selfdestructed)
@@ -51,6 +47,8 @@ contract PerceptProviderTest is Test {
    * ZKP proof for the following statement:
    * a * b = c
    * where a=3, b=11, and c as a result c=33
+   *
+   * obtained from: cd circuits/test/4_proof && snarkjs generatecall && cd ../../..
    */
   uint256[2] public a = [
     0x2df5d8728684e37dbfe1018fabd82b3a3c79bee0b29e4d178338819378117777,
@@ -75,6 +73,7 @@ contract PerceptProviderTest is Test {
     0x0000000000000000000000000000000000000000000000000000000000000021
   ];
 
+  //to test false proof
   uint256[1] public input_false = [
     0x0000000000000000000000000000000000000000000000000000000000000020
   ];
@@ -115,9 +114,9 @@ contract PerceptProviderTest is Test {
     vm.startPrank(deployer, deployer); //msg.sender & tx.origin
     perceptProvider = new PerceptProvider(pctTknTotalSupply, perceptNetwork);
     perceptToken = PerceptToken(perceptProvider.getPctTknAddr());
-    zkpVerifierMultiplier = new ZKPVerifierMultiplier();
+    verifier = new Verifier();
 
-    model0_verifier = address(zkpVerifierMultiplier);
+    model0_verifier = address(verifier);
 
     model0 = PerceptLibrary.Model({
       name: model0_name,
@@ -130,7 +129,6 @@ contract PerceptProviderTest is Test {
     });
 
     perceptProvider.setModel(model0); // & deploy verifier
-    // zkpVerifierMultiplier = IZKPVerifierMultiplier(perceptProvider.getModel(model0_name).verifier);
     vm.stopPrank();
 
     vm.startPrank(subscriber);
@@ -172,8 +170,6 @@ contract PerceptProviderTest is Test {
     assertEq(perceptProvider.getFeeSubscription(model0_name), feeSubcription0);
     assertEq(perceptProvider.getFeeCall(model0_name), feeCall0);
 
-    zkpVerifier = ZKPVerifier(perceptProvider.getModel(model0_name).verifier);
-    assert(address(zkpVerifier)!=address(0));
     vm.stopPrank();
   }
 
@@ -263,7 +259,7 @@ contract PerceptProviderTest is Test {
       feeCall: feeCall0,
       feeSubscription: feeSubcription0,
       amtVerifiedCalls: 0,
-      verifierBytecode: verifierBytecodeInvalid
+      verifierBytecode: '0x'
     });
 
     vm.startPrank(deployer, deployer);

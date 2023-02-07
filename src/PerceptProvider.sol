@@ -16,15 +16,15 @@ pragma solidity 0.8.17;
  * 				[x] sendRequest()
  * 				[x] response()
  * 					 [x] verifyResult()
- * 					 [x] sendResult()
+ * 					 [x] sendResult() @todo specify gasLeft
  *				[ ] withdraw() @todo ML marketplace
  *
  * 		[ ] Security&Optimization&Others:
- * 				[ ] Scan through vulns. list.
- * 				[ ] Test true negatives
- * 				[ ] Ensure pctTkn fundReceiver!=0x0 (in case of future selfdestruct)
+ * 				[ ] Vulns. list.
+ * 				[ ] More unit tests
  *  			[ ] Fuzz testing
- *        [ ] events, (indexed?, argument seperately instead of struct?)
+ * 				[ ] Ensure pctTkn fundReceiver!=0x0 (in case of future selfdestruct)
+ *        [ ] events (indexed, arguments seperately or struct)
  * 				[ ] Compare gas between error msg for each "require" and just "return logic x && y"
  */
 
@@ -206,7 +206,7 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   ) private {
   	__request.status = PerceptLibrary.RequestStatus.Success;
   	model[keccak256(abi.encodePacked(_response.model))].amtVerifiedCalls++;
-  	_response.subscriber.call(_response.dataResponse); //skip success check to protect from DoS attack
+  	_response.subscriber.call(_response.dataResponse); //skip success check to protect from DoS attack @todo specify gasLeft
   }
 
   function _setExecFailure(
@@ -215,7 +215,7 @@ contract PerceptProvider is Owned(msg.sender), ReentrancyGuard {
   ) private {
 		__request.status = PerceptLibrary.RequestStatus.Failure;
   	pctTkn.transfer(_response.subscriber, getFeeCall(_response.model));
-  	_response.subscriber.call(abi.encodeWithSignature("perceptCallback(bytes)", bytes(''))); //skip success check to protect from DoS attack
+  	_response.subscriber.call(abi.encodeWithSignature("perceptCallback(bytes)", bytes(''))); //skip success check to protect from DoS attack @todo specify gasLeft
   }
 
   function withdraw() external view onlyOwner returns(bool) { //ensure risks with reentrancy & modelAdd/update
